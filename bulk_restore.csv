@@ -1,0 +1,5 @@
+restore_method,website_name,admin_username,admin_password,admin_email,language,ssl,source_path,db_path
+wpcontent,demo1,admin,admin,thienhungnth01@gmail.com,,TRUE,D:\Code\Website\Source\website1\wp-content,D:\Code\Website\Source\website1.sql
+ai1,demo2,admin,admin,thienhungnth01@gmail.com,,,D:\Code\Website\Source\website2.wpress,
+dup,demo3,admin,admin,thienhungnth01@gmail.com,,,D:\Code\Website\Source\website3,
+wp,demo4,admin,admin,thienhungnth01@gmail.com,,,D:\Code\Website\Source\website4,

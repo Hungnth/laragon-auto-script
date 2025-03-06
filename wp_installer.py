@@ -1,0 +1,305 @@
+from input_handler import WebsiteInputs
+from utilities import check_and_download_file, copy_file_folder
+from commands import run_command, run_sql_command
+import os
+import sys
+import zipfile
+import json
+from main import get_laragon_path
+from utilities import save_wp_credentials, print_info, reload_laragon
+from database_handler import create_database
+import config
+
+# Tải tài nguyên từ file resource.json
+try:
+    with open(config.resource_path, 'r', encoding='utf-8') as f:
+        resource = json.load(f)
+        plugins = resource['plugins']
+        themes = resource['themes']
+except Exception as e:
+    print(f"Không thể đọc file resource.json: {e}")
+
+
+class WPInstaller :
+    """Install WordPress"""
+
+    def __init__(self, inputs: WebsiteInputs):
+        self.laragon_path, self.laragon_sites_path, self.cached_path = get_laragon_path()
+        
+        self.website_name = inputs.website_name
+        self.wp_admin = inputs.admin_username
+        self.wp_admin_password = inputs.admin_password
+        self.wp_admin_email = inputs.admin_email
+        self.ssl = inputs.ssl
+        self.language = inputs.language
+        self.apply_options = inputs.apply_options
+
+        self.protocol = "https://" if self.ssl else "http://"
+        self.website_url = f"{self.protocol}{self.website_name}.test"
+        
+        self.website_path = os.path.join(self.laragon_sites_path, self.website_name)
+
+        self.wp_cli_cmd = f'wp --path=\"{self.website_path}\"'        
+
+    def install_wp_core(self):
+        """ Cài đặt WordPress Core """
+
+        # Copy WordPress Core từ thư mục cached
+        wp_core_file = os.path.join(self.cached_path, 'wordpress.latest.zip')
+        check_and_download_file('https://wordpress.org/latest.zip', wp_core_file)
+
+        wp_core_dir = os.path.join(self.cached_path, 'wordpress')
+
+        if not os.path.exists(wp_core_dir):
+            print(f'Giải nén tệp {wp_core_file}...')
+            try:
+                with zipfile.ZipFile(wp_core_file, 'r') as zip_ref:
+                    zip_ref.extractall(self.cached_path)
+            except Exception as e:
+                print(f'Lỗi khi giải nén tệp: {e}')
+                sys.exit(1)
+
+        print(f'Sao chép tệp {wp_core_dir} vào {self.website_path}...')
+        copy_file_folder(wp_core_dir, self.website_path)
+
+    def edit_wp_config(self):
+        """ Tạo file wp-config.php """
+        wp_config_cmd = f'config create --dbname={self.website_name} --dbuser=root --dbpass= --dbhost=localhost'
+        result = run_command(f'{self.wp_cli_cmd} {wp_config_cmd}')
+        print(result.stdout)
+
+    def install_wordpress(self):
+        """ Cài đặt WordPress """
+        wp_install_cmd = f'core install --url="{self.website_url}/" --admin_user="{self.wp_admin}" --admin_password="{self.wp_admin_password}" --title="{self.website_name}" --admin_email="{self.wp_admin_email}"'
+        result = run_command(f'{self.wp_cli_cmd} {wp_install_cmd}')
+        print(result.stdout)
+
+    def choose_install_plugin(self, plugin_choices=None):
+        """ Chọn plugins để cài đặt. """
+
+        # In danh sách plugin để người dùng chọn nếu không có argument
+        if plugin_choices is None:
+            print("\nDanh sách plugins:\n")
+            for index, plugin in enumerate(plugins, start=1):
+                print(f"{index}. {plugin['name']}")
+
+            # Nhập và tách chuỗi đầu vào
+            plugin_choices = input("Chọn plugin cần cài đặt, mỗi plugin cách nhau bởi dấu \",\" hoặc \" \" (Ví dụ: 1,2,3 hoặc 1 2 3): ")
+
+        # Xử lý chuỗi input thành list các lựa chọn
+        choose_plugins = plugin_choices.replace(" ", ",").split(",")
+        choose_plugins = [x.strip() for x in choose_plugins if x.strip()]
+
+        print(f"Chọn plugin: {choose_plugins}")
+
+        selected_plugins_dict = {}
+
+        # Duyệt qua từng lựa chọn và tìm plugin tương ứng
+        for choice in choose_plugins:
+            for index, plugin in enumerate(plugins, start=1):
+                if str(index) == choice:
+                    selected_plugins_dict[plugin["id"]] = {
+                        "file_name": plugin["file_name"],
+                        "url": plugin["url"]
+                    }
+                    break
+        return selected_plugins_dict
+
+    def install_plugins(self, selected_plugins=None):
+        """ Xóa plugin mặc định và cài đặt plugin theo danh sách (nếu có) """
+
+        default_plugin_cmds = [
+            "plugin delete hello",
+            "plugin delete akismet",
+        ]
+
+        for plugin_cmd in default_plugin_cmds:
+            result = run_command(f"{self.wp_cli_cmd} {plugin_cmd}")
+            print(result.stdout)
+
+        # Xóa plugin mặc định
+        if selected_plugins is not None:
+            # Thêm plugin cần cặt đặt vào danh sách
+            plugins_list = []
+            for _, details in selected_plugins.items():
+                local_path = os.path.join(self.cached_path, details["file_name"])
+                check_and_download_file(details["url"], local_path)
+                plugins_list.append(local_path)
+
+            # Cài đặt plugin theo danh sách
+            for plugin in plugins_list:
+                result = run_command(f"{self.wp_cli_cmd} plugin install {plugin} --activate")
+                print(result.stdout)
+                if "wordfence" in plugin:
+                    self.wordfence_activate()
+
+    def wordfence_activate(self):
+        """ Kích hoạt plugin Wordfence """
+
+        wordfence_activate_file = os.path.join(self.cached_path, 'nth-wordfence-activator.php')
+        check_and_download_file('https://d3cav5r4mkyokm.cloudfront.net/staging/c9a7aebb-5ab3-41de-8e76-a5685f399a81/660230e0cffab0005b80c518/A-ME-2025-235V-1740714655634.php', wordfence_activate_file)
+        mu_plugins_path = os.path.join(self.website_path, 'wp-content', 'mu-plugins')
+        copy_file_folder(wordfence_activate_file, mu_plugins_path)
+
+    def install_themes(self, condition=True):
+        """ Nếu 'True' thì cài đặt Flatsome và xóa các theme mặc định, nếu 'False' thì chỉ cài đặt Flatsome """
+
+        flatsome_file = os.path.join(self.cached_path, themes[0]['file_name'])
+        check_and_download_file(themes[0]['url'], flatsome_file)
+
+        flatsome_cmd = f'theme install "{flatsome_file}" --activate'
+
+        default_themes_cmds = [
+            'theme delete twentytwentythree',
+            'theme delete twentytwentyfour',
+            'theme delete twentytwentyfive',
+        ]
+
+        themes_cmds = [flatsome_cmd]
+        if condition:
+            themes_cmds.extend(default_themes_cmds)
+
+        for theme_cmd in themes_cmds:
+            result = run_command(f'{self.wp_cli_cmd} {theme_cmd}')
+            print(result.stdout)
+
+    def install_languages(self):
+        """ Cấu hình ngôn ngữ website """
+        language_cmds = [f'language core install {self.language}', f'site switch-language {self.language}']
+        for language_cmd in language_cmds:
+            result = run_command(f'{self.wp_cli_cmd} {language_cmd}')
+            print(result.stdout)
+
+    def install_options(self):
+        """ Cấu hình options """
+        if self.apply_options:
+            option_cmds = [
+                'config set WP_MEMORY_LIMIT 256M',
+                'rewrite structure "/%category%/%postname%/"',
+                'option update timezone_string "Asia/Ho_Chi_Minh"',
+                'option update time_format "H:i"',
+                'option update date_format "d/m/Y"',
+                'option update large_size_w 0',
+                'option update large_size_h 0',
+                'option update medium_large_size_w 0',
+                'option update medium_large_size_h 0',
+                'option update medium_size_w 0',
+                'option update medium_size_h 0',
+                'option update thumbnail_size_w 0',
+                'option update thumbnail_size_h 0',
+                'option update thumbnail_crop 0',
+                'option update comment_moderation 1',
+                'option update default_ping_status closed',
+                'option update posts_per_page 30',
+                'option update posts_per_rss 210',
+                'option update rss_use_excerpt 1',
+                'option update avatar_default identicon'
+            ]
+
+            for cmd in option_cmds:
+                try:
+                    # Use double quotes for Windows paths and escape properly
+                    full_cmd = f'{self.wp_cli_cmd} {cmd}'
+                    result = run_command(full_cmd)
+                    if result and result.stdout:
+                        print(result.stdout)
+                except Exception as e:
+                    print(f'Lỗi khi thực thi lệnh "{cmd}": {e}')
+                    continue  # Continue with next command even if one fails
+
+    def edit_htaccess(self):
+        """ Chỉnh sửa file .htaccess để thêm quy tắc chuyển hướng từ HTTP sang HTTPS. """
+
+        htaccess_path = os.path.join(self.website_path, '.htaccess')
+        print(f'Đường dẫn file .htaccess: {htaccess_path}\n')
+
+        # Nội dung gốc của .htaccess (nếu file chưa tồn tại)
+        default_htaccess = """# BEGIN WordPress
+# The directives (lines) between "BEGIN WordPress" and "END WordPress" are
+# dynamically generated, and should only be modified via WordPress filters.
+# Any changes to the directives between these markers will be overwritten.
+<IfModule mod_rewrite.c>
+RewriteEngine On
+RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
+RewriteBase /
+RewriteRule ^index\.php$ - [L]
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule . /index.php [L]
+</IfModule>
+
+# END WordPress
+"""
+
+        # Đoạn mã chuyển hướng HTTP sang HTTPS
+        ssl_redirect = """RewriteEngine On
+RewriteBase /
+RewriteCond %{HTTPS} off
+RewriteRule (.*) https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301,NE]
+"""
+        try:
+            # Ghi nội dung vào file
+            with open(htaccess_path, 'w') as f:
+                if self.ssl:
+                    content = f'{default_htaccess}\n{ssl_redirect}'
+                    f.write(content)
+                else:
+                    f.write(default_htaccess)
+
+        except PermissionError:
+            print(f"Không có quyền ghi file tại {htaccess_path}")
+        except IOError as e:
+            print(f"Lỗi khi ghi file {htaccess_path}: {e}")
+    
+    def change_url(self, prefix="wp_"):
+        """ Thay đổi url website """        
+
+        print(f'\nThay đổi url website: "{self.website_url}"')
+        run_sql_command(f'{self.website_name} -e "UPDATE {prefix}options SET option_value = \'{self.website_url}\' WHERE option_name = \'home\';"')
+        run_sql_command(f'{self.website_name} -e "UPDATE {prefix}options SET option_value = \'{self.website_url}\' WHERE option_name = \'siteurl\';"')
+
+    def change_admin_info(self, prefix="wp_"):
+        """Thay đổi thông tin admin"""
+
+        # Lấy ID của admin user đầu tiên
+        result = run_sql_command(f'{self.website_name} --skip-column-names --silent -e "SELECT ID FROM {prefix}users;"')
+        user_id = result.stdout.replace('\n', ',').split(',')
+        print(f'\nDanh sách ID: {user_id if user_id else "Không tìm thấy ID"}')
+        
+        if user_id:
+            # Đặt lại mật khẩu admin
+            print(f'Đặt lại mật khẩu admin (ID: {user_id[0]})...\n')
+            run_sql_command(f'{self.website_name} -e "UPDATE {prefix}users SET user_pass = MD5(\'{self.wp_admin_password}\') WHERE ID = {user_id[0]};"')
+            
+            # Đặt lại admin username
+            print(f'Đặt lại admin username: "{self.wp_admin}"')
+            run_sql_command(f'{self.website_name} -e "UPDATE {prefix}users SET user_login = \'{self.wp_admin}\' WHERE ID = {user_id[0]};"')
+
+            # Thay đổi user email
+            print(f'Thay đổi user email: "{self.wp_admin_email}"')
+            run_sql_command(f'{self.website_name} -e "UPDATE {prefix}users SET user_email = \'{self.wp_admin_email}\' WHERE ID = {user_id[0]};"')
+
+        # Thay đổi admin email
+        print(f'Thay đổi admin email: "{self.wp_admin_email}"')
+        run_sql_command(f'{self.website_name} -e "UPDATE {prefix}options SET option_value = \'{self.wp_admin_email}\' WHERE option_name = \'admin_email\';"')
+
+        # Flush rewrite rules, cache
+        print(f'Flush rewrite rules, cache')
+        run_command(f'{self.wp_cli_cmd} rewrite flush')
+        run_command(f'{self.wp_cli_cmd} cache flush')
+
+    def create_new_website(self, selected_plugins=None):
+        """ Tạo website mới """
+        create_database(self.website_name)
+        self.install_wp_core()
+        self.edit_wp_config()
+        self.install_wordpress()
+        self.install_plugins(selected_plugins)
+        self.install_themes()
+        self.install_languages()
+        self.install_options()
+        self.edit_htaccess()
+        save_wp_credentials(self.website_path, self.website_url, self.wp_admin, self.wp_admin_password, self.wp_admin_email)
+        print_info(self.website_url, self.wp_admin, self.wp_admin_password, self.wp_admin_email)
+        reload_laragon(self.laragon_path, self.website_url)
+
