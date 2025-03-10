@@ -1,5 +1,5 @@
 # Đường dẫn đến thư mục Laragon
-laragon_path = r"C:\laragon"
+laragon_path = r"F:\laragon"
 
 admin_username = "admin"
 admin_password = "admin"

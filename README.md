@@ -45,7 +45,7 @@ Một công cụ tự động hóa mạnh mẽ được viết bằng Python đ�
 4. Đảm bảo đã cài đặt Python >= 10, ở đây không dùng bất cứ thư viện nào bên ngoài
 5. Cài đặt WP-CLI cho Laragon, tham khảo [Link](https://gist.github.com/ladislavsulc/8b7450fa7cddd0129e0dcfbbbc5a6647)
 
--   Hãy đảm bảo thay thế `C:\laragon` bằng đường dẫn cài đặt Laragon trên máy tính của bạn
+    - Hãy đảm bảo thay thế `C:\laragon` bằng đường dẫn cài đặt Laragon trên máy tính của bạn
 
     ```bash
      cd C:\laragon\usr\bin && curl -L -O https://raw.github.com/wp-cli/builds/gh-pages/phar/wp-cli.phar &&  echo @ECHO OFF > wp.bat && echo php "%~dp0wp-cli.phar" %* >> wp.bat
@@ -79,7 +79,7 @@ main.py -n website1 -u admin -p admin
 -   `-i` Cài đặt plugin, chỉnh sửa ở file `resource.json`, sau đó chọn plugin cần cài đặt theo số thứ tự
 -   `-o`: Không cài đặt các option cho Wordpress, cài đặt sẽ nhanh hơn, bạn có thể chỉnh sửa file `config.py`
 
-### Khôi phục từng Website
+### Khôi phục từng Website;
 
 -   `--ai1`: Dùng plugin All in One Migration WP (Unlimited nếu file lớn), thay bằng đường dẫn file `.wpress` của bạn
 

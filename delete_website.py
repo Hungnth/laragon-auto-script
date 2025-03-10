@@ -2,13 +2,16 @@ import os
 import sys
 import shutil
 import subprocess
+import asyncio
+from database_handler import drop_database
 
-def get_website_list(laragon_sites_path):
+
+async def get_website_list(laragon_sites_path):
     """Lấy danh sách thư mục website"""
     website_folders = [f for f in os.listdir(laragon_sites_path) if os.path.isdir(os.path.join(laragon_sites_path, f))]
     return website_folders
 
-def print_websites(websites):
+async def print_websites(websites):
     """In ra danh sách website"""
     if not websites:
         print('Không có website nào để xóa!')
@@ -21,7 +24,7 @@ def print_websites(websites):
             continue
         print(f'{index}. {folder}')
 
-def choose_website(websites):
+async def choose_website(websites):
     """Chọn website để xóa"""
     while True:
         try:
@@ -33,36 +36,31 @@ def choose_website(websites):
             print('Vui lòng nhập một số!')
     return delete_index
 
-def delete_website(website_name, laragon_sites_path):
+async def delete_website(website_name, laragon_sites_path):
     """Hàm xóa một website cụ thể"""
+
     website_path = os.path.join(laragon_sites_path, website_name)
     try:
         # Xóa thư mục website
-        print(f'\nĐang xóa thư mục: {website_path}')
-        shutil.rmtree(website_path)
+        await asyncio.to_thread(shutil.rmtree, website_path)
         print(f'Đã xóa thư mục: {website_path}')
 
         # Xóa database
-        print(f'Đang xóa database: {website_name}')
-        mysql_cmd = f'mysql -u root -e "DROP DATABASE IF EXISTS {website_name};"'
-        result = subprocess.run(mysql_cmd, shell=True, capture_output=True, text=True)
-        
-        if result.stderr:
-            print(f'Lỗi khi xóa database: {result.stderr}')
-        else:
-            print(f'Đã xóa database: {website_name}')
+        await drop_database(website_name)
         
         return True
     except Exception as e:
         print(f'Lỗi khi xóa website {website_name}: {e}')
         return False
 
-def delete_website_interactive(laragon_path, laragon_sites_path):
+async def delete_website_interactive(laragon_path, laragon_sites_path):
     """Xóa website trong chế độ tương tác"""
-    websites = get_website_list(laragon_sites_path)
-    print_websites(websites)
+
+    websites = await get_website_list(laragon_sites_path)
+    await print_websites(websites)
+    
     try:
-        delete_index = choose_website(websites)
+        delete_index = await choose_website(websites)
         if delete_index == 0:
             # Xác nhận xóa tất cả
             confirm = input(f'\nBạn có chắc chắn muốn xóa TẤT CẢ {len(websites)} website không? (yes/no): ').lower()
@@ -71,10 +69,9 @@ def delete_website_interactive(laragon_path, laragon_sites_path):
                 return False
             
             # Xóa từng website một
-            success_count = 0
-            for website in websites:
-                if delete_website(website, laragon_sites_path):
-                    success_count += 1
+            delete_tasks = [delete_website(website, laragon_sites_path) for website in websites]
+            results = await asyncio.gather(*delete_tasks)
+            success_count = sum(results)
             
             # Thông báo kết quả
             print(f'\nĐã xóa thành công {success_count}/{len(websites)} website')
@@ -86,34 +83,35 @@ def delete_website_interactive(laragon_path, laragon_sites_path):
                 print('Đã hủy xóa website!')
                 return False
                             
-            if delete_website(website_name, laragon_sites_path):
+            if await delete_website(website_name, laragon_sites_path):
                 print('\nĐã xóa website thành công!')
 
         # Reload Apache Server
         print('\nReload Apache Server...')
-        subprocess.run(f'{os.path.join(laragon_path, "laragon.exe")} reload apache', shell=True)
+        await asyncio.to_thread(subprocess.run, f'{os.path.join(laragon_path, "laragon.exe")} reload apache', shell=True)
         return True
 
     except Exception as e:
         print(f'Lỗi không xác định: {e}')
         return False
 
-def delete_website_by_name(website_name, laragon_path, laragon_sites_path):
+async def delete_website_by_name(website_name, laragon_path, laragon_sites_path):
     """Xóa website theo tên được chỉ định"""
     if not website_name:
         print("Tên website không được để trống!")
         return False
 
-    websites = get_website_list(laragon_sites_path)
+    websites = await get_website_list(laragon_sites_path)
     if website_name not in websites:
         print(f'Website "{website_name}" không tồn tại!')
         return False
 
-    if delete_website(website_name, laragon_sites_path):
+    if await delete_website(website_name, laragon_sites_path):
         print('\nĐã xóa website thành công!')
+
         # Reload Apache Server
         print('\nReload Apache Server...')
-        subprocess.run(f'{os.path.join(laragon_path, "laragon.exe")} reload apache', shell=True)
+        await asyncio.to_thread(subprocess.run, f'{os.path.join(laragon_path, "laragon.exe")} reload apache', shell=True)
         return True
     return False
 

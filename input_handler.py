@@ -2,6 +2,7 @@ import argparse, os, re, sys
 from database_handler import check_database_exists
 import config
 
+
 class WebsiteInputs:
     """Class to store website input data"""
     def __init__(self):
@@ -14,14 +15,9 @@ class WebsiteInputs:
         self.is_install_plugins = False
         self.language = config.language  # Ngôn ngữ mặc định
         self.apply_options = True
-        self.restore_method = {
-            "is_restore": False,
-            "method": "",
-            "source_path": "",
-            "db_path": "",
-        }
 
-def validate_input(prompt: str, pattern: str = r'^[a-zA-Z0-9_-]+$') -> str:
+
+async def validate_input(prompt: str, pattern: str = r'^[a-zA-Z0-9_-]+$') -> str:
     """Validate user input against a regex pattern"""
     while True:
         value = input(prompt).strip()
@@ -31,7 +27,7 @@ def validate_input(prompt: str, pattern: str = r'^[a-zA-Z0-9_-]+$') -> str:
         return value
 
 
-def validate_yes_no_input(prompt: str, default: bool = False) -> bool:
+async def validate_yes_no_input(prompt: str, default: bool = False) -> bool:
     """Handle yes/no input validation with default value"""
     while True:
         user_input = input(f'{prompt} (y/n) (Mặc định: "{"yes" if default else "no"}"): ').lower().strip()
@@ -42,7 +38,7 @@ def validate_yes_no_input(prompt: str, default: bool = False) -> bool:
         print('Vui lòng chỉ nhập y/n hoặc yes/no hoặc nhấn "Enter" để sử dụng mặc định.')
 
 
-def validate_website_path(website_name: str, laragon_path: str) -> str:
+async def validate_website_path(website_name: str, laragon_path: str) -> str:
     """Validate website path and check for conflicts"""
     website_path = os.path.join(laragon_path, 'www', website_name)
     
@@ -50,14 +46,14 @@ def validate_website_path(website_name: str, laragon_path: str) -> str:
         print(f'Thư mục / website "{website_name}" đã tồn tại!')
         sys.exit(1)
 
-    if check_database_exists(website_name):
+    if await check_database_exists(website_name):
         print(f'Database "{website_name}" đã tồn tại!')
         sys.exit(1)
         
     return website_path
 
 
-def parse_arguments() -> argparse.Namespace:
+async def parse_arguments() -> argparse.Namespace:
     """Parse command line arguments"""
     parser = argparse.ArgumentParser(description='Cài đặt WordPress tự động trên Laragon')
 
@@ -92,44 +88,50 @@ def parse_arguments() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def handle_restore_args(args: argparse.Namespace, inputs: WebsiteInputs) -> WebsiteInputs:
+async def handle_restore_args(args: argparse.Namespace, inputs: WebsiteInputs) -> WebsiteInputs:
     """Handle restore-related arguments"""
     
-    if args.ai1 and os.path.exists(args.ai1):
-        inputs.restore_method.update({
-            'is_restore': True,
-            'method': 'ai1',
-            'source_path': args.ai1
-        })
-    elif args.dup and os.path.exists(args.dup):
-        inputs.restore_method.update({
-            'is_restore': True,
-            'method': 'dup',
-            'source_path': args.dup
-        })
+    from restore import Restore
+    wp_restore = Restore(inputs)
+
+    if args.ai1:
+        if not os.path.exists(args.ai1):
+            print(f"File '{args.ai1}' không tồn tại!")
+            sys.exit(1)
+        else:
+            await wp_restore.restore_ai1(args.ai1)
+            sys.exit(0)
+
+    elif args.dup:
+        if not os.path.exists(args.dup):
+            print(f"File '{args.dup}' không tồn tại!")
+            sys.exit(1)
+        else:
+            await wp_restore.restore_dup(args.dup)
+            sys.exit(0)
+
     elif args.wpcontent:
         if not args.db:
             print('Bạn chưa nhập đường dẫn tới file database!')
             sys.exit(1)
-        if os.path.exists(args.wpcontent) and os.path.exists(args.db):
-            inputs.restore_method.update({
-                'is_restore': True,
-                'method': 'wpcontent',
-                'source_path': args.wpcontent,
-                'db_path': args.db
-            })
-    elif args.wp and os.path.exists(args.wp):
-        inputs.restore_method.update({
-            'is_restore': True,
-            'method': 'wp',
-            'source_path': args.wp
-        })
+        else:
+            await wp_restore.restore_wpcontent(args.wpcontent, args.db)
+            sys.exit(0)
+
+    elif args.wp:
+        if not os.path.exists(args.wp):
+            print(f"Thư mục '{args.wp}' không tồn tại!")
+            sys.exit(1)
+        else:
+            await wp_restore.restore_wp(args.wp)
+            sys.exit(0)
 
     return inputs
 
 
-def handle_command_line_input(args: argparse.Namespace, laragon_path: str) -> WebsiteInputs:
+async def handle_command_line_input(args: argparse.Namespace, laragon_path: str) -> WebsiteInputs:
     """Handle command line input arguments"""
+
     inputs = WebsiteInputs()
     
     # Handle website name and credentials
@@ -143,7 +145,7 @@ def handle_command_line_input(args: argparse.Namespace, laragon_path: str) -> We
             inputs.admin_username = args.args[1].replace(' ', '_')
             inputs.admin_password = args.args[2]
 
-        inputs.website_path = validate_website_path(inputs.website_name, laragon_path)
+        inputs.website_path = await validate_website_path(inputs.website_name, laragon_path)
         
         # Handle optional arguments
         inputs.ssl = args.ssl
@@ -152,18 +154,18 @@ def handle_command_line_input(args: argparse.Namespace, laragon_path: str) -> We
         inputs.language = args.language if args.language else inputs.language
         
         # Handle restore methods
-        return handle_restore_args(args, inputs)
+        return await handle_restore_args(args, inputs)
     
     return None
 
 
-def handle_interactive_input(laragon_path: str) -> WebsiteInputs:
+async def handle_interactive_input(laragon_path: str) -> WebsiteInputs:
     """Handle interactive user input"""
     inputs = WebsiteInputs()
     
     # Get website name
     while True:
-        inputs.website_name = validate_input("Nhập tên thư mục website: ").replace(" ", "_")
+        inputs.website_name = await validate_input("Nhập tên thư mục website: ").replace(" ", "_")
         if not inputs.website_name:
             print("Tên website không được để trống!")
             continue
@@ -181,7 +183,7 @@ def handle_interactive_input(laragon_path: str) -> WebsiteInputs:
 
     # Get admin credentials
     while True:
-        inputs.admin_username = validate_input("Nhập admin_username: ").replace(" ", "_")
+        inputs.admin_username = await validate_input("Nhập admin_username: ").replace(" ", "_")
         if inputs.admin_username:
             break
         print("Admin username không được để trống!")
@@ -193,21 +195,21 @@ def handle_interactive_input(laragon_path: str) -> WebsiteInputs:
         print("Admin password không được để trống!")
 
     # Get SSL preference
-    inputs.ssl = validate_yes_no_input("Cài đặt SSL cho website")
+    inputs.ssl = await validate_yes_no_input("Cài đặt SSL cho website")
     
     # Get plugins preference
-    inputs.is_install_plugins = validate_yes_no_input("\nBạn có muốn cài đặt plugin không?")
+    inputs.is_install_plugins = await validate_yes_no_input("\nBạn có muốn cài đặt plugin không?")
 
     return inputs
 
 
-def get_website_inputs(laragon_path: str, laragon_sites_path: str):
+async def get_website_inputs(laragon_path: str, laragon_sites_path: str):
     """Main function to get all website inputs"""
     
     bulk_restore_file = config.bulk_restore_path
-    args = parse_arguments()
+    args = await parse_arguments()
 
-    if args.bulk_restore is not None:        
+    if args.bulk_restore is not None:  
         if not args.bulk_restore:
             print("Bạn chưa nhập đường dẫn tới file CSV, dùng file mặc định!")
             args.bulk_restore = bulk_restore_file
@@ -216,23 +218,25 @@ def get_website_inputs(laragon_path: str, laragon_sites_path: str):
 
         from bulk_restore import BulkRestore
         bulk_restore = BulkRestore(args.bulk_restore)
-        bulk_restore.restore_from_csv()
+        await bulk_restore.restore_from_csv()
         sys.exit(0)
 
     elif args.delete is not None:
         from delete_website import delete_website_by_name, delete_website_interactive
 
         if args.delete:
-            delete_website_by_name(args.delete, laragon_path, laragon_sites_path)
+            await delete_website_by_name(args.delete, laragon_path, laragon_sites_path)
         else:
-            delete_website_interactive(laragon_path, laragon_sites_path)
+            await delete_website_interactive(laragon_path, laragon_sites_path)
         sys.exit(0) 
         
-    # Try command line input for normal website creation
-    inputs = handle_command_line_input(args, laragon_path)
-    if inputs:
-        return inputs
-        
+    else:
+        inputs = await handle_command_line_input(args, laragon_path)
+        if inputs:
+            return inputs
+            
     # Only fall back to interactive input if no arguments were provided
     if len(sys.argv) == 1:
-        return handle_interactive_input(laragon_path)
+        return await handle_interactive_input(laragon_path)
+    else:
+        return None

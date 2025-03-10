@@ -1,5 +1,13 @@
 restore_method,website_name,admin_username,admin_password,admin_email,language,ssl,source_path,db_path
-wpcontent,demo1,admin,admin,thienhungnth01@gmail.com,,TRUE,D:\Code\Website\Source\website1\wp-content,D:\Code\Website\Source\website1.sql
-ai1,demo2,admin,admin,thienhungnth01@gmail.com,,,D:\Code\Website\Source\website2.wpress,
-dup,demo3,admin,admin,thienhungnth01@gmail.com,,,D:\Code\Website\Source\website3,
-wp,demo4,admin,admin,thienhungnth01@gmail.com,,,D:\Code\Website\Source\website4,
+wp,789club,admin,admin,thienhungnth01@gmail.com,,TRUE,D:\Code\Website\Source\245 Flatsome Source - 2025\1\backup-789club.giaodienwp.com-22-03_26-10-2024,D:\Code\Website\Source\sangiaodien.com\starisaf250.themedep.top-backup\starisaf250.themedep.top.sql
+wp,agasi,admin,admin,thienhungnth01@gmail.com,,TRUE,D:\Code\Website\Source\245 Flatsome Source - 2025\1\backup-agasi.giaodienwp.com-21-45_26-10-2024,
+wp,anhconggiao,admin,admin,thienhungnth01@gmail.com,,TRUE,D:\Code\Website\Source\245 Flatsome Source - 2025\1\backup-anhconggiao.giaodienwp.com-21-41_26-10-2024,D:\Code\Website\source\backup-mypham.giaodienwp.com-21-08_26-10-2024\database-8c2a49e99456f94bb1ade5b7b3e21fc7.sql
+wp,anhcuoi,admin,admin,thienhungnth01@gmail.com,,TRUE,D:\Code\Website\Source\245 Flatsome Source - 2025\1\backup-anhcuoi.giaodienwp.com-19-47_26-,
+dup,agency,admin,admin,thienhungnth01@gmail.com,,TRUE,D:\Code\Website\Source\630 Theme Flatsome - 2025\1\agency.mauthemewp.com,
+dup,agency2,admin,admin,thienhungnth01@gmail.com,,TRUE,D:\Code\Website\Source\630 Theme Flatsome - 2025\1\agency2.maugiaodien.com,
+ai1,agency21,admin,admin,thienhungnth01@gmail.com,,TRUE,D:\Code\Website\Source\630 Theme Flatsome - 2025\1\agency2.mauthemewp.com\agency2.mauthemewp.com-20230516-000216-fr5kwn.wpress,
+ai1,appgiaoduc,admin,admin,thienhungnth01@gmail.com,,TRUE,D:\Code\Website\Source\630 Theme Flatsome - 2025\1\appgiaoduc.mauthemewp.com\appgiaoduc.mauthemewp.com-20230502-181015-p6yx9o.wpress,
+ai1,Autojet,admin,admin,thienhungnth01@gmail.com,,TRUE,D:\Code\Website\Source\630 Theme Flatsome - 2025\1\Autojet.mauthemewp.com\autojet.mauthemewp.com-20230427-132735-sulgi3.wpress,
+wpcontent,starisaf250,admin,admin,thienhungnth01@gmail.com,,TRUE,D:\Code\Website\Source\sangiaodien.com\starisaf250.themedep.top-backup\starisaf250.themedep.top-public_html\wp-content,D:\Code\Website\Source\sangiaodien.com\starisaf250.themedep.top-backup\starisaf250.themedep.top.sql
+wpcontent,xethomf250,admin,admin,thienhungnth01@gmail.com,,TRUE,D:\Code\Website\Source\sangiaodien.com\xethomf250.themedep.top-backup\xethomf250.themedep.top-public_html\wp-content,D:\Code\Website\Source\sangiaodien.com\xethomf250.themedep.top-backup\xethomf250.themedep.top.sql
+wpcontent,bds34,admin,admin,thienhungnth01@gmail.com,,TRUE,D:\Code\Website\Source\630 Theme Flatsome - 2025\2\bds34.maugiaodien.com\wp-content,D:\Code\Website\Source\630 Theme Flatsome - 2025\2\bds34.maugiaodien.com\maugiaod_bds34.sql

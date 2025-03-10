@@ -1,4 +1,5 @@
 import os
+import asyncio
 from input_handler import get_website_inputs
 import config
 
@@ -14,21 +15,16 @@ def get_laragon_path():
     return laragon_path, laragon_sites_path, cached_path
 
 
-def main():
+async def main():
     laragon_path, laragon_sites_path, _ = get_laragon_path()
 
-    inputs = get_website_inputs(laragon_path, laragon_sites_path)    
+    inputs = await get_website_inputs(laragon_path, laragon_sites_path)    
 
-    if inputs.restore_method['is_restore']:
-        from restore import Restore
-        wp_restore = Restore(inputs)
-        wp_restore.handle_restore_method()
-
-    else:
-        from wp_installer import WPInstaller
-        wp_install = WPInstaller(inputs)
-        selected_plugins = wp_install.choose_install_plugin() if inputs.is_install_plugins else None
-        wp_install.create_new_website(selected_plugins)
+    # Create new website
+    from wp_installer import WPInstaller
+    wp_install = WPInstaller(inputs)
+    selected_plugins = await wp_install.choose_install_plugin() if inputs.is_install_plugins else None
+    await wp_install.create_new_website(selected_plugins)
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())

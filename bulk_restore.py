@@ -1,28 +1,32 @@
-import csv, os, sys, subprocess
+import csv, os, sys, subprocess, aiofiles, asyncio
 from main import get_laragon_path
 from datetime import datetime
 from database_handler import check_database_exists
 
 
+laragon_path, laragon_sites_path, cached_path = get_laragon_path()
+
 class BulkRestore:
     """ Handle bulk restore from CSV file """
     
     def __init__(self, csv_path):
-        self.laragon_path, self.laragon_sites_path, self.cached_path = get_laragon_path()
+        self.laragon_path = laragon_path
+        self.laragon_sites_path = laragon_sites_path
+        self.cached_path = cached_path
 
         self.csv_path = csv_path
         self.protocol = "http://"  # Default protocol
         self.results = []  # Store results of each website restore
 
-    def _check_website_exists(self, website_name: str, website_path: str) -> tuple[bool, str]:
+    async def _check_website_exists(self, website_name: str, website_path: str) -> tuple[bool, str]:
         """Kiểm tra website đã tồn tại hay chưa"""
         if os.path.exists(website_path):
             return True, "Thư mục website đã tồn tại"
-        if check_database_exists(website_name):
+        if await check_database_exists(website_name):
             return True, "Database đã tồn tại"
         return False, ""
 
-    def restore_from_csv(self):
+    async def restore_from_csv(self):
         """ Restore multiple websites from CSV file """
         
         if not os.path.exists(self.csv_path):
@@ -40,8 +44,8 @@ class BulkRestore:
         
         for encoding in encodings:
             try:
-                with open(self.csv_path, 'r', encoding=encoding) as f:
-                    content = f.read()
+                async with aiofiles.open(self.csv_path, 'r', encoding=encoding) as f:
+                    content = await f.read()
                     break
             except UnicodeDecodeError:
                 continue
@@ -61,103 +65,114 @@ class BulkRestore:
             print("File CSV phải có các cột: website_name, source_path, restore_method")
             sys.exit(1)
 
-        # Đọc và xử lý từng hàng
+        tasks = []
+
         for index, row in enumerate(reader):
-            result = {
-                "website_name": row["website_name"].strip(),
-                "restore_method": row["restore_method"].strip().lower(),
-                "source_path": row["source_path"].strip(),
-                "status": "Failed",  # Default status
-                "error_message": "",
-                "missing_requirements": []  # This will store requirement names as separate list items
-            }
+            task = self._restore_website(row, index)
+            tasks.append(task)
 
-            try:
-                print(f"\n{'='*50}")
-                print(f"Đang restore website: {result['website_name']}")
-                
-                # Tạo inputs mới cho mỗi website
-                from input_handler import WebsiteInputs
-                inputs = WebsiteInputs()
-                inputs.website_name = result["website_name"]
-                inputs.website_path = os.path.join(self.laragon_sites_path, inputs.website_name)
+        await asyncio.gather(*tasks)
 
-                # Kiểm tra website đã tồn tại chưa
-                exists, error_message = self._check_website_exists(inputs.website_name, inputs.website_path)
-                if exists:
-                    result["error_message"] = error_message
-                    print(f"{result['error_message']}")
-                    self.results.append(result)
-                    continue
-                
-                # Cập nhật thông tin admin nếu có
-                if "admin_username" in row and row["admin_username"].strip():
-                    inputs.admin_username = row["admin_username"].strip()
-                if "admin_password" in row and row["admin_password"].strip():
-                    inputs.admin_password = row["admin_password"].strip()
-                if "admin_email" in row and row["admin_email"].strip():
-                    inputs.admin_email = row["admin_email"].strip()
-                if "ssl" in row and row["ssl"].strip().lower() in ['true', '1', 'yes']:
-                    inputs.ssl = True
+        await self._export_results()
+        await self._print_summary()
 
-                # Kiểm tra phương thức restore và source path
-                required_restore_method = ["ai1", "dup", "wpcontent", "wp"]
-                restore_method = result["restore_method"]
-                if restore_method not in required_restore_method:
-                    result["error_message"] = f"Phương thức restore không hợp lệ: {restore_method}"
-                    print(f"{result['error_message']}")
-                    print(f"Vui lòng kiểm tra lại file CSV tại dòng {index + 2}")
-                    self.results.append(result)
-                    continue
-                
-                if not os.path.exists(result["source_path"]):
-                    result["error_message"] = f"Source path không tồn tại: {result['source_path']}"
+    async def _restore_website(self, row, index):
+        """ Xử lý restore một website cụ thể (chạy song song) """
+
+        result = {
+            "website_name": row["website_name"].strip(),
+            "restore_method": row["restore_method"].strip().lower(),
+            "source_path": row["source_path"].strip(),
+            "db_path": row["db_path"].strip() if "db_path" in row else None,
+            "status": "Failed",
+            "error_message": "",
+            "missing_requirements": []
+        }
+
+        try:
+            print(f"\n{'='*50}")
+            print(f"Đang restore website: {result['website_name']}")
+
+            from input_handler import WebsiteInputs
+            inputs = WebsiteInputs()
+            inputs.website_name = result["website_name"]
+            inputs.website_path = os.path.join(self.laragon_sites_path, inputs.website_name)
+
+            # Kiểm tra website đã tồn tại chưa
+            exists, error_message = await self._check_website_exists(inputs.website_name, inputs.website_path)
+            if exists:
+                result["error_message"] = error_message
+                print(f"{result['error_message']}")
+                self.results.append(result)
+                return
+            
+            # Cập nhật thông tin admin nếu có
+            if "admin_username" in row and row["admin_username"].strip():
+                inputs.admin_username = row["admin_username"].strip()
+            if "admin_password" in row and row["admin_password"].strip():
+                inputs.admin_password = row["admin_password"].strip()
+            if "admin_email" in row and row["admin_email"].strip():
+                inputs.admin_email = row["admin_email"].strip()
+            if "ssl" in row and row["ssl"].strip().lower() in ['true', '1', 'yes']:
+                inputs.ssl = True
+
+            # Kiểm tra phương thức restore và source path
+            required_restore_method = ["ai1", "dup", "wpcontent", "wp"]
+            restore_method = result["restore_method"]
+            if restore_method not in required_restore_method:
+                result["error_message"] = f"Phương thức restore không hợp lệ: {restore_method}"
+                print(result["error_message"])
+                self.results.append(result)
+                return
+            
+            # Kiểm tra source path
+            if not os.path.exists(result["source_path"]):
+                result["error_message"] = f"Đường dẫn source path không tồn tại: {result['source_path']}"
+                print(result["error_message"])
+                self.results.append(result)
+                return
+            
+            # Tạo instance Restore
+            from restore import Restore
+            restore = Restore(inputs, True)
+
+            if restore_method == "ai1":
+                await restore.restore_ai1(result["source_path"])
+            elif restore_method == "dup":
+                await restore.restore_dup(result["source_path"])
+            
+            elif restore_method == "wp":
+                await restore.restore_wp(result["source_path"])
+
+            elif restore_method == "wpcontent":
+                if not result["db_path"]:
+                    result["error_message"] = "Không tìm thấy đường dẫn database"
+                    result["missing_requirements"].append("db_path")
                     print(result["error_message"])
                     self.results.append(result)
-                    continue
+                    return
+                db_path = result["db_path"].strip()
 
-                # Cập nhật restore method
-                inputs.restore_method = {
-                    "is_restore": True,
-                    "method": restore_method,
-                    "source_path": result["source_path"]
-                }
-
-                # Thêm db_path nếu phương thức là wpcontent
-                if restore_method == "wpcontent":
-                    if "db_path" not in row or not row["db_path"].strip():
-                        result["error_message"] = "Thiếu đường dẫn database cho phương thức wp-content"
-                        result["missing_requirements"].append("Database path")  # Add as a single item
-                        print(result["error_message"])
-                        self.results.append(result)
-                        continue
-                    db_path = row["db_path"].strip()
-                    if not os.path.exists(db_path):
-                        result["error_message"] = f"Database path không tồn tại: {db_path}"
-                        print(result["error_message"])
-                        self.results.append(result)
-                        continue
-                    inputs.restore_method["db_path"] = db_path
-
-                # Tạo instance Restore và thực hiện restore
-                from restore import Restore
-                restorer = Restore(inputs, True)
-                restorer.handle_restore_method()
+                if not os.path.exists(db_path):
+                    result["error_message"] = "Đường dẫn database không tồn tại"
+                    print(result["error_message"])
+                    self.results.append(result)
+                    return
                 
-                print(f"Đã restore xong website: {inputs.website_name}")
-                result["status"] = "Success"
-                self.results.append(result)
+                await restore.restore_wpcontent(result["source_path"], db_path)
+
+            result["status"] = "Success"
+            self.results.append(result)
+            print(f"Website {result['website_name']} đã được restore thành công!")
+            
+        except Exception as e:
+            result["error_message"] = str(e)
+            print(f"Lỗi khi restore website {result['website_name']}: {e}")
+            self.results.append(result)
+            return               
                 
-            except Exception as e:
-                result["error_message"] = str(e)
-                print(f"Lỗi khi restore website {result['website_name']}: {e}")
-                self.results.append(result)
-                continue
 
-        self._export_results()
-        self._print_summary()
-
-    def _export_results(self):
+    async def _export_results(self):
         """Export results to a CSV file"""
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")        
         log_dir = os.path.join(os.path.dirname(self.csv_path), "logs")
@@ -165,23 +180,23 @@ class BulkRestore:
         os.makedirs(log_dir, exist_ok=True)
         output_file = os.path.join(log_dir, f"bulk_restore_results_{timestamp}.csv")
         
-        fieldnames = ["website_name", "restore_method", "source_path", "status", "error_message", "missing_requirements"]
+        fieldnames = ["website_name", "restore_method", "source_path", "db_path", "status", "error_message", "missing_requirements"]
         
         # Ghi file với UTF-8-SIG để Excel có thể đọc được tiếng Việt
-        with open(output_file, "w", encoding="utf-8-sig", newline="") as f:
+        async with aiofiles.open(output_file, "w", encoding="utf-8-sig", newline="") as f:
             writer = csv.DictWriter(f, fieldnames=fieldnames)
-            writer.writeheader()
+            await writer.writeheader()
             for result in self.results:
                 # Make a copy of the result to avoid modifying the original
                 row = result.copy()
                 # Join the missing requirements list properly
                 if isinstance(row["missing_requirements"], list):
                     row["missing_requirements"] = ", ".join(row["missing_requirements"])
-                writer.writerow(row)
+                await writer.writerow(row)
                 
         print(f"\nKết quả đã được xuất ra file: {output_file}")
 
-    def _print_summary(self):
+    async def _print_summary(self):
         """Print a summary of the restoration results"""
         total = len(self.results)
         successful = sum(1 for r in self.results if r["status"] == "Success")
@@ -199,8 +214,11 @@ class BulkRestore:
                 if result["status"] == "Failed":
                     print(f"- {result['website_name']}: {result['error_message']}")
                     if result["missing_requirements"]:
-                        print(f"  Thiếu yêu cầu: {', '.join(result['missing_requirements'])}")
+                        print(f"Thiếu yêu cầu: {', '.join(result['missing_requirements'])}")
 
         # Reload Apache Server
-        subprocess.run(f'{os.path.join(self.laragon_path, "laragon.exe")} reload apache', shell=True)
+        await asyncio.to_thread(subprocess.run, f'{os.path.join(self.laragon_path, "laragon.exe")} reload apache', shell=True)
         print("\nHoàn tất quá trình bulk restore!") 
+
+
+    
